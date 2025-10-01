@@ -174,42 +174,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Aggregate by issueKey
-    const perIssueSeconds = new Map<string, number>();
-    const perIssueStart = new Map<string, number>();
-    const perIssueEnd = new Map<string, number>();
-    for (const r of results) {
-      perIssueSeconds.set(r.issueKey, (perIssueSeconds.get(r.issueKey) || 0) + r.timeSpentSeconds);
-      // track earliest start and latest end for this issue
-      const prevStart = perIssueStart.get(r.issueKey);
-      const prevEnd = perIssueEnd.get(r.issueKey);
-      perIssueStart.set(r.issueKey, prevStart !== undefined ? Math.min(prevStart, r.startedMs) : r.startedMs);
-      perIssueEnd.set(r.issueKey, prevEnd !== undefined ? Math.max(prevEnd, r.endedMs) : r.endedMs);
-    }
-    const issues = Array.from(perIssueSeconds.entries()).map(([issueKey, totalSeconds]) => ({
-      issueKey,
-      summary: issueSummaries.get(issueKey) ?? null,
-      totalSeconds,
-      timeRange: {
-        startISO: (() => {
-          const s = perIssueStart.get(issueKey);
-          return s !== undefined ? new Date(s).toISOString() : null;
-        })(),
-        endISO: (() => {
-          const e = perIssueEnd.get(issueKey);
-          return e !== undefined ? new Date(e).toISOString() : null;
-        })(),
-      },
-    })).sort((a, b) => {
-      const aStart = a.timeRange?.startISO ? new Date(a.timeRange.startISO).getTime() : Number.POSITIVE_INFINITY;
-      const bStart = b.timeRange?.startISO ? new Date(b.timeRange.startISO).getTime() : Number.POSITIVE_INFINITY;
-      return aStart - bStart;
-    });
-    const totalSeconds = issues.reduce((s, i) => s + i.totalSeconds, 0);
+    // Build per-worklog entries
+    const worklogs = results.map((r) => ({
+      issueKey: r.issueKey,
+      summary: issueSummaries.get(r.issueKey) ?? null,
+      timeSpentSeconds: r.timeSpentSeconds,
+      startedISO: new Date(r.startedMs).toISOString(),
+      endedISO: new Date(r.endedMs).toISOString(),
+      comment: r.comment,
+    })).sort((a, b) => new Date(a.startedISO).getTime() - new Date(b.startedISO).getTime());
+    const totalSeconds = worklogs.reduce((s, i) => s + (i.timeSpentSeconds || 0), 0);
 
     return NextResponse.json({
       summary: { userEmail: emailParam || session.user.email?.toLowerCase() || null, date: startISO, totalSeconds },
-      issues,
+      worklogs,
     });
   } catch (error: unknown) {
     if (axios.isAxiosError(error)) {

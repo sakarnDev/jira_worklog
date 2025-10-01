@@ -4,16 +4,18 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-type ApiIssueSummary = {
+type ApiWorklog = {
   issueKey: string;
   summary: string | null;
-  totalSeconds: number;
-  timeRange?: { startISO: string | null; endISO: string | null };
+  timeSpentSeconds: number;
+  startedISO: string;
+  endedISO: string;
+  comment: string | null;
 };
 
 type ApiResponse = {
   summary: { userEmail: string | null; date: string; totalSeconds: number };
-  issues: ApiIssueSummary[];
+  worklogs: ApiWorklog[];
   error?: unknown;
 };
 
@@ -27,10 +29,10 @@ function formatSecondsToHms(totalSeconds: number): string {
   return parts.join(" ");
 }
 
-function formatTimeRange(range?: { startISO: string | null; endISO: string | null }): string {
+function formatTimeRange(range?: { startISO: string | null; endISO: string | null } | null): string {
   if (!range || !range.startISO || !range.endISO) return "-";
-  const start = new Date(range.startISO);
-  const end = new Date(range.endISO);
+  const start = new Date(range.startISO as string);
+  const end = new Date(range.endISO as string);
   const toHM = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   return `${toHM(start)} - ${toHM(end)}`;
 }
@@ -134,12 +136,12 @@ export default function WorklogDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {(data?.issues || []).map((row, idx) => (
+                {(data?.worklogs || []).map((row, idx) => (
                   <tr key={idx} className="even:bg-gray-50">
                     <td className="p-2 border-b font-mono text-sm"><a href={`${process.env.NEXT_PUBLIC_JIRA_DOMAIN}/browse/${row.issueKey}`} className="text-blue-700 underline" target="_blank" rel="noopener noreferrer">{row.issueKey}</a></td>
                     <td className="p-2 border-b text-sm">{row.summary || "-"}</td>
-                    <td className="p-2 border-b text-sm">{formatTimeRange(row.timeRange)}</td>
-                    <td className="p-2 border-b">{formatSecondsToHms(row.totalSeconds)}</td>
+                    <td className="p-2 border-b text-sm">{formatTimeRange({ startISO: row.startedISO, endISO: row.endedISO })}</td>
+                    <td className="p-2 border-b">{formatSecondsToHms(row.timeSpentSeconds)}</td>
                   </tr>
                 ))}
               </tbody>

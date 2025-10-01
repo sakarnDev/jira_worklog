@@ -37,6 +37,58 @@ function formatTimeRange(range?: { startISO: string | null; endISO: string | nul
   return `${toHM(start)} - ${toHM(end)}`;
 }
 
+function parseFlexibleDateTime(input: string): Date | null {
+  const raw = (input || "").trim();
+  if (!raw) return null;
+  // Normalize separator between date/time
+  const normalized = raw.replace(/\s+/, "T");
+  const [datePart, timePart] = normalized.split("T");
+  if (!datePart || !timePart) return null;
+
+  // Parse time hh:mm (optional seconds)
+  const timeMatch = timePart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!timeMatch) return null;
+  const hours = Number(timeMatch[1]);
+  const minutes = Number(timeMatch[2]);
+  const seconds = timeMatch[3] ? Number(timeMatch[3]) : 0;
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+
+  let year: number, month: number, day: number;
+  if (datePart.includes("/")) {
+    // Assume dd/mm/yyyy
+    const m = datePart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    day = Number(m[1]);
+    month = Number(m[2]);
+    year = Number(m[3]);
+  } else if (datePart.includes("-")) {
+    // Assume yyyy-mm-dd
+    const m = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!m) return null;
+    year = Number(m[1]);
+    month = Number(m[2]);
+    day = Number(m[3]);
+  } else {
+    return null;
+  }
+
+  // Basic range checks
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const d = new Date(year, month - 1, day, hours, minutes, seconds, 0);
+  // Validate that fields did not overflow (e.g., 31/02)
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day ||
+    d.getHours() !== hours ||
+    d.getMinutes() !== minutes
+  ) {
+    return null;
+  }
+  return d;
+}
+
 export default function WorklogDashboard() {
   const { data: session, status } = useSession();
 
@@ -67,6 +119,17 @@ export default function WorklogDashboard() {
   const { data, isFetching, isError, error, refetch, isSuccess } = query;
 
   const totalHms = useMemo(() => formatSecondsToHms(data?.summary.totalSeconds || 0), [data]);
+
+  // Calculator states
+  const [startText, setStartText] = useState<string>("");
+  const [endText, setEndText] = useState<string>("");
+  const calcResult = useMemo(() => {
+    const start = parseFlexibleDateTime(startText);
+    const end = parseFlexibleDateTime(endText);
+    if (!start || !end) return "-";
+    const diffSec = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
+    return formatSecondsToHms(diffSec);
+  }, [startText, endText]);
 
   if (status === "loading") {
     return <div className="p-6">Loading session...</div>;
@@ -150,6 +213,35 @@ export default function WorklogDashboard() {
 
           <div className="text-sm text-gray-700">
             รวมเวลา: <span className="font-medium">{totalHms}</span>
+          </div>
+
+          <hr className="my-6 border-t" />
+
+          <div className="flex flex-col gap-3">
+            <div className="text-base font-semibold">คำนวณเวลา Worklog</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-700">เริ่ม</label>
+                <input
+                  type="datetime-local"
+                  value={startText}
+                  onChange={(e) => setStartText(e.target.value)}
+                  className="px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-700">จบ</label>
+                <input
+                  type="datetime-local"
+                  value={endText}
+                  onChange={(e) => setEndText(e.target.value)}
+                  className="px-3 py-2 border rounded"
+                />
+              </div>
+            </div>
+            <div className="text-sm text-gray-700">
+              ผลลัพธ์: <span className="font-medium">{calcResult}</span>
+            </div>
           </div>
         </>
       )}

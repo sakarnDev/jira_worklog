@@ -4,7 +4,12 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-type ApiIssueSummary = { issueKey: string; totalSeconds: number };
+type ApiIssueSummary = {
+  issueKey: string;
+  summary: string | null;
+  totalSeconds: number;
+  timeRange?: { startISO: string | null; endISO: string | null };
+};
 
 type ApiResponse = {
   summary: { userEmail: string | null; date: string; totalSeconds: number };
@@ -20,6 +25,14 @@ function formatSecondsToHms(totalSeconds: number): string {
   if (minutes > 0) parts.push(`${minutes}m`);
   if (parts.length === 0) parts.push("0m");
   return parts.join(" ");
+}
+
+function formatTimeRange(range?: { startISO: string | null; endISO: string | null }): string {
+  if (!range || !range.startISO || !range.endISO) return "-";
+  const start = new Date(range.startISO);
+  const end = new Date(range.endISO);
+  const toHM = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${toHM(start)} - ${toHM(end)}`;
 }
 
 export default function WorklogDashboard() {
@@ -115,6 +128,8 @@ export default function WorklogDashboard() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="text-left p-2 border-b">Issue Key</th>
+                  <th className="text-left p-2 border-b">Task</th>
+                  <th className="text-left p-2 border-b">From - To</th>
                   <th className="text-left p-2 border-b">Total Time</th>
                 </tr>
               </thead>
@@ -122,6 +137,8 @@ export default function WorklogDashboard() {
                 {(data?.issues || []).map((row, idx) => (
                   <tr key={idx} className="even:bg-gray-50">
                     <td className="p-2 border-b font-mono text-sm"><a href={`${process.env.NEXT_PUBLIC_JIRA_DOMAIN}/browse/${row.issueKey}`} className="text-blue-700 underline" target="_blank" rel="noopener noreferrer">{row.issueKey}</a></td>
+                    <td className="p-2 border-b text-sm">{row.summary || "-"}</td>
+                    <td className="p-2 border-b text-sm">{formatTimeRange(row.timeRange)}</td>
                     <td className="p-2 border-b">{formatSecondsToHms(row.totalSeconds)}</td>
                   </tr>
                 ))}

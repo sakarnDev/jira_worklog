@@ -7,6 +7,8 @@ type JiraWorklog = {
   issueKey: string;
   timeSpentSeconds: number;
   comment: string | null;
+  startedMs: number;
+  endedMs: number;
 };
 
 type JiraApiWorklog = {
@@ -93,14 +95,16 @@ export async function GET(req: NextRequest) {
     const searchUrl = `${baseUrl}/rest/api/3/search/jql`;
 
     // Fetch issues via new JQL search endpoint with pagination
-    type JqlSearchResponse = { issues: Array<{ key: string }>; nextPageToken?: string };
+    type JqlSearchResponse = { issues: Array<{ key: string; fields?: { summary?: string } }>; nextPageToken?: string };
     const issueKeys: string[] = [];
+    const issueSummaries = new Map<string, string | null>();
     let nextPageToken: string | undefined = undefined;
     do {
       const body: { jql: string; maxResults: number; nextPageToken?: string; fields?: string[] } = {
         jql,
         maxResults: 100,
-        fields: ["key"],
+        // Request summary so we can show task name
+        fields: ["summary"],
         ...(nextPageToken ? { nextPageToken } : {}),
       };
       const { data } = await axios.post<JqlSearchResponse>(
@@ -116,7 +120,11 @@ export async function GET(req: NextRequest) {
       );
 
       for (const issue of data.issues || []) {
-        if (issue?.key) issueKeys.push(issue.key);
+        if (issue?.key) {
+          issueKeys.push(issue.key);
+          const summary = issue.fields?.summary ?? null;
+          issueSummaries.set(issue.key, summary);
+        }
       }
       nextPageToken = data.nextPageToken;
     } while (nextPageToken);
@@ -138,16 +146,17 @@ export async function GET(req: NextRequest) {
 
       const worklogs = wlResp.data.worklogs || [];
       const filter_worklogs = worklogs.filter((wl: JiraApiWorklog) => {
-        return wl.author?.accountId === accountId;
+        // When accountId is known (email filter), ensure author matches; otherwise rely on JQL constraint
+        return accountId ? wl.author?.accountId === accountId : true;
       })
       for (const wl of filter_worklogs) {
         const timeSpentSeconds = wl.timeSpentSeconds ?? 0;
         const comment = typeof wl.comment === "string" ? wl.comment : null;
+        const started = wl.started ? new Date(wl.started) : null;
 
         // Only include logs by current user
         // Jira Cloud: we can't get current accountId directly via session; rely on JQL filter and secondary check by email if present
         const withinDay = (() => {
-          const started = wl.started ? new Date(wl.started) : null;
           if (!started) return false;
           const ms = started.getTime();
           return ms >= startMs && ms < endMs;
@@ -158,17 +167,44 @@ export async function GET(req: NextRequest) {
             issueKey,
             timeSpentSeconds,
             comment,
+            startedMs: started!.getTime(),
+            endedMs: (started!.getTime()) + timeSpentSeconds * 1000,
           });
         }
       }
     }
 
     // Aggregate by issueKey
-    const perIssue = new Map<string, number>();
+    const perIssueSeconds = new Map<string, number>();
+    const perIssueStart = new Map<string, number>();
+    const perIssueEnd = new Map<string, number>();
     for (const r of results) {
-      perIssue.set(r.issueKey, (perIssue.get(r.issueKey) || 0) + r.timeSpentSeconds);
+      perIssueSeconds.set(r.issueKey, (perIssueSeconds.get(r.issueKey) || 0) + r.timeSpentSeconds);
+      // track earliest start and latest end for this issue
+      const prevStart = perIssueStart.get(r.issueKey);
+      const prevEnd = perIssueEnd.get(r.issueKey);
+      perIssueStart.set(r.issueKey, prevStart !== undefined ? Math.min(prevStart, r.startedMs) : r.startedMs);
+      perIssueEnd.set(r.issueKey, prevEnd !== undefined ? Math.max(prevEnd, r.endedMs) : r.endedMs);
     }
-    const issues = Array.from(perIssue.entries()).map(([issueKey, totalSeconds]) => ({ issueKey, totalSeconds }));
+    const issues = Array.from(perIssueSeconds.entries()).map(([issueKey, totalSeconds]) => ({
+      issueKey,
+      summary: issueSummaries.get(issueKey) ?? null,
+      totalSeconds,
+      timeRange: {
+        startISO: (() => {
+          const s = perIssueStart.get(issueKey);
+          return s !== undefined ? new Date(s).toISOString() : null;
+        })(),
+        endISO: (() => {
+          const e = perIssueEnd.get(issueKey);
+          return e !== undefined ? new Date(e).toISOString() : null;
+        })(),
+      },
+    })).sort((a, b) => {
+      const aStart = a.timeRange?.startISO ? new Date(a.timeRange.startISO).getTime() : Number.POSITIVE_INFINITY;
+      const bStart = b.timeRange?.startISO ? new Date(b.timeRange.startISO).getTime() : Number.POSITIVE_INFINITY;
+      return aStart - bStart;
+    });
     const totalSeconds = issues.reduce((s, i) => s + i.totalSeconds, 0);
 
     return NextResponse.json({

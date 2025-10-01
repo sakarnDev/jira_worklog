@@ -66,6 +66,7 @@ export default function WorklogDashboard() {
         >
           กดปุ่มนี้เพื่อ Sign in with Google
         </button>
+        <p className="font-bold text-red-700">email end with @lamunpunit.com only!!!</p>
       </div>
     );
   }
@@ -120,7 +121,7 @@ export default function WorklogDashboard() {
               <tbody>
                 {(data?.issues || []).map((row, idx) => (
                   <tr key={idx} className="even:bg-gray-50">
-                    <td className="p-2 border-b font-mono text-sm">{row.issueKey}</td>
+                    <td className="p-2 border-b font-mono text-sm"><a href={`${process.env.NEXT_PUBLIC_JIRA_DOMAIN}/browse/${row.issueKey}`} className="text-blue-700 underline" target="_blank" rel="noopener noreferrer">{row.issueKey}</a></td>
                     <td className="p-2 border-b">{formatSecondsToHms(row.totalSeconds)}</td>
                   </tr>
                 ))}

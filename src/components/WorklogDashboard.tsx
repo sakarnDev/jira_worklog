@@ -62,9 +62,9 @@ export default function WorklogDashboard() {
       <div className="p-6 flex flex-col gap-4 items-start">
         <button
           onClick={() => signIn("google")}
-          className="px-4 py-2 rounded bg-black text-white hover:opacity-90"
+          className="px-4 py-2 rounded bg-black text-white hover:opacity-90 cursor-pointer"
         >
-          Sign in with Google
+          กดปุ่มนี้เพื่อ Sign in with Google
         </button>
       </div>
     );
@@ -76,7 +76,7 @@ export default function WorklogDashboard() {
         <div className="text-sm text-gray-600">Signed in as {session.user?.email}</div>
         <button
           onClick={() => signOut()}
-          className="px-3 py-2 rounded border border-gray-300 hover:bg-gray-50"
+          className="px-3 py-2 rounded border border-gray-300 hover:bg-gray-50 cursor-pointer"
         >
           Sign out
         </button>
@@ -96,7 +96,7 @@ export default function WorklogDashboard() {
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
+            className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50 cursor-pointer"
           >
             {isFetching ? "Fetching..." : "Fetch Data"}
           </button>

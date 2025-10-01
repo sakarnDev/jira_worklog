@@ -2,6 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import axios from "axios";
+import http from "http";
+import https from "https";
+// Reusable Axios instance with keep-alive for better performance
+const httpClient = axios.create({
+  httpAgent: new http.Agent({ keepAlive: true }),
+  httpsAgent: new https.Agent({ keepAlive: true }),
+  timeout: 20000,
+});
+
+// Simple in-memory cache for accountId lookups
+const accountIdCache = new Map<string, { value: string | null; ts: number }>();
+const ACCOUNT_ID_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const current = idx++;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  const workers = new Array(Math.min(limit, items.length)).fill(null).map(() => worker());
+  await Promise.all(workers);
+  return results;
+}
 
 type JiraWorklog = {
   issueKey: string;
@@ -66,12 +92,19 @@ async function resolveAccountIdByEmail(baseUrl: string, authHeader: string, emai
   // Jira Cloud user search by query (may require proper permissions)
   type User = { accountId: string; emailAddress?: string };
   const url = `${baseUrl}/rest/api/3/user/search`;
-  const { data } = await axios.get<User[]>(url, {
+  const now = Date.now();
+  const cached = accountIdCache.get(email);
+  if (cached && now - cached.ts < ACCOUNT_ID_TTL_MS) {
+    return cached.value;
+  }
+  const { data } = await httpClient.get<User[]>(url, {
     headers: { Authorization: authHeader, Accept: "application/json" },
     params: { query: email, maxResults: 2 },
   });
   const match = (data || []).find(() => true);
-  return match?.accountId ?? null;
+  const value = match?.accountId ?? null;
+  accountIdCache.set(email, { value, ts: now });
+  return value;
 }
 
 export async function GET(req: NextRequest) {
@@ -107,7 +140,7 @@ export async function GET(req: NextRequest) {
         fields: ["summary"],
         ...(nextPageToken ? { nextPageToken } : {}),
       };
-      const { data } = await axios.post<JqlSearchResponse>(
+      const { data } = await httpClient.post<JqlSearchResponse>(
         searchUrl,
         body,
         {
@@ -131,9 +164,9 @@ export async function GET(req: NextRequest) {
 
     // For accuracy, call issue worklogs API per issue to get logs in selected day
     const results: JiraWorklog[] = [];
-    for (const issueKey of issueKeys) {
+    await mapWithConcurrency(issueKeys, 6, async (issueKey) => {
       const worklogUrl = `${baseUrl}/rest/api/3/issue/${issueKey}/worklog`;
-      const wlResp = await axios.get<{ worklogs?: JiraApiWorklog[] }>(worklogUrl, {
+      const wlResp = await httpClient.get<{ worklogs?: JiraApiWorklog[] }>(worklogUrl, {
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
@@ -148,31 +181,23 @@ export async function GET(req: NextRequest) {
       const filter_worklogs = worklogs.filter((wl: JiraApiWorklog) => {
         // When accountId is known (email filter), ensure author matches; otherwise rely on JQL constraint
         return accountId ? wl.author?.accountId === accountId : true;
-      })
+      });
       for (const wl of filter_worklogs) {
         const timeSpentSeconds = wl.timeSpentSeconds ?? 0;
         const comment = typeof wl.comment === "string" ? wl.comment : null;
         const started = wl.started ? new Date(wl.started) : null;
-
-        // Only include logs by current user
-        // Jira Cloud: we can't get current accountId directly via session; rely on JQL filter and secondary check by email if present
-        const withinDay = (() => {
-          if (!started) return false;
-          const ms = started.getTime();
-          return ms >= startMs && ms < endMs;
-        })();
-
-        if (withinDay) {
-          results.push({
-            issueKey,
-            timeSpentSeconds,
-            comment,
-            startedMs: started!.getTime(),
-            endedMs: (started!.getTime()) + timeSpentSeconds * 1000,
-          });
-        }
+        if (!started) continue;
+        const ms = started.getTime();
+        if (ms < startMs || ms >= endMs) continue;
+        results.push({
+          issueKey,
+          timeSpentSeconds,
+          comment,
+          startedMs: ms,
+          endedMs: ms + timeSpentSeconds * 1000,
+        });
       }
-    }
+    });
 
     // Build per-worklog entries
     const worklogs = results.map((r) => ({

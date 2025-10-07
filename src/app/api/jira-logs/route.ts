@@ -39,12 +39,34 @@ type JiraWorklog = {
 
 type JiraApiWorklog = {
   timeSpentSeconds?: number;
-  comment?: string | null;
+  comment?: string | { content?: Array<{ content?: Array<{ text?: string }> }> } | null;
   started?: string;
   author?: {
     accountId?: string;
   };
 };
+
+function extractCommentText(comment: string | { content?: Array<{ content?: Array<{ text?: string }> }> } | null | undefined): string | null {
+  if (!comment) return null;
+  if (typeof comment === "string") return comment;
+  
+  // Handle Atlassian Document Format (ADF)
+  if (typeof comment === "object" && comment.content && Array.isArray(comment.content)) {
+    const texts: string[] = [];
+    for (const block of comment.content) {
+      if (block.content && Array.isArray(block.content)) {
+        for (const item of block.content) {
+          if (item.text) {
+            texts.push(item.text);
+          }
+        }
+      }
+    }
+    return texts.join(" ").trim() || null;
+  }
+  
+  return null;
+}
 
 function formatJiraBaseUrl(): string {
   const domain = process.env.JIRA_DOMAIN;
@@ -76,10 +98,11 @@ function dateOnlyISO(date: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function getDayBounds(dateStr?: string): { startISO: string; endISO: string; startMs: number; endMs: number } {
-  const base = dateStr ? new Date(dateStr) : new Date();
-  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1);
+function getDateRangeBounds(startDateStr?: string, endDateStr?: string): { startISO: string; endISO: string; startMs: number; endMs: number } {
+  const startBase = startDateStr ? new Date(startDateStr) : new Date();
+  const endBase = endDateStr ? new Date(endDateStr) : new Date();
+  const start = new Date(startBase.getFullYear(), startBase.getMonth(), startBase.getDate());
+  const end = new Date(endBase.getFullYear(), endBase.getMonth(), endBase.getDate() + 1);
   return {
     startISO: dateOnlyISO(start),
     endISO: dateOnlyISO(end),
@@ -118,8 +141,12 @@ export async function GET(req: NextRequest) {
     const authHeader = getAuthHeader();
 
     const emailParam = req.nextUrl.searchParams.get("email")?.toLowerCase().trim();
-    const dateParam = req.nextUrl.searchParams.get("date")?.trim();
-    const { startISO, endISO, startMs, endMs } = getDayBounds(dateParam || startOfTodayISO());
+    const startDateParam = req.nextUrl.searchParams.get("startDate")?.trim();
+    const endDateParam = req.nextUrl.searchParams.get("endDate")?.trim();
+    const { startISO, endISO, startMs, endMs } = getDateRangeBounds(
+      startDateParam || startOfTodayISO(),
+      endDateParam || startOfTodayISO()
+    );
 
     // Resolve accountId if a specific email is requested; else use currentUser in JQL
     const accountId = emailParam ? await resolveAccountIdByEmail(baseUrl, authHeader, emailParam) : null;
@@ -184,7 +211,7 @@ export async function GET(req: NextRequest) {
       });
       for (const wl of filter_worklogs) {
         const timeSpentSeconds = wl.timeSpentSeconds ?? 0;
-        const comment = typeof wl.comment === "string" ? wl.comment : null;
+        const comment = extractCommentText(wl.comment);
         const started = wl.started ? new Date(wl.started) : null;
         if (!started) continue;
         const ms = started.getTime();
@@ -211,7 +238,13 @@ export async function GET(req: NextRequest) {
     const totalSeconds = worklogs.reduce((s, i) => s + (i.timeSpentSeconds || 0), 0);
 
     return NextResponse.json({
-      summary: { userEmail: emailParam || session.user.email?.toLowerCase() || null, date: startISO, totalSeconds },
+      summary: { 
+        userEmail: emailParam || session.user.email?.toLowerCase() || null, 
+        date: startISO, 
+        startDate: startISO,
+        endDate: dateOnlyISO(new Date(endMs - 1)),
+        totalSeconds 
+      },
       worklogs,
     });
   } catch (error: unknown) {

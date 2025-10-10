@@ -13,7 +13,8 @@ export const authOptions: NextAuthOptions = {
     async signIn({ account, profile }) {
       if (account?.provider === "google") {
         const email = (profile as { email?: string } | null)?.email || "";
-        return email.toLowerCase().endsWith("@lamunpunit.com");
+        const emailLowerCase = email.toLowerCase()
+        return emailLowerCase.endsWith("@lamunpunit.com") || emailLowerCase.endsWith("@lmwn.com");
       }
       return false;
     },

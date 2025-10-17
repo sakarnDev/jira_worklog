@@ -329,10 +329,10 @@ export default function WorklogDashboard() {
                                 {row.issueKey}
                               </a>
                             </TableCell>
-                            <TableCell className="text-sm">
+                            <TableCell className="text-sm whitespace-normal w-64">
                               {row.summary || '-'}
                             </TableCell>
-                            <TableCell className="text-sm">
+                            <TableCell className="text-sm whitespace-normal w-64">
                               {row.comment || '-'}
                             </TableCell>
                             <TableCell className="text-sm">
@@ -341,7 +341,7 @@ export default function WorklogDashboard() {
                                 endISO: row.endedISO,
                               })}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="text-right">
                               {formatSecondsToHms(row.timeSpentSeconds)}
                             </TableCell>
                           </TableRow>

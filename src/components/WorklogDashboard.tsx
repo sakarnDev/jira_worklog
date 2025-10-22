@@ -16,6 +16,14 @@ import {
   TableBody,
   TableCell,
 } from '@/components/ui/table'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+
+import { useLocalStorage } from '@/lib/hook/useLocalStorage'
+import Image from 'next/image'
 
 type ApiWorklog = {
   issueKey: string
@@ -85,6 +93,7 @@ export default function WorklogDashboard() {
 
   const [startDate, setStartDate] = useState<string>(getTodayString())
   const [endDate, setEndDate] = useState<string>(getTodayString())
+  const [accountId, setAccountId] = useLocalStorage('accountId', '')
 
   // Date pagination state
   const [currentDateIndex, setCurrentDateIndex] = useState<number>(0)
@@ -96,6 +105,7 @@ export default function WorklogDashboard() {
       if (session?.user?.email) params.set('email', session.user.email)
       if (startDate) params.set('startDate', startDate)
       if (endDate) params.set('endDate', endDate)
+      if (accountId) params.set('accountId', accountId)
       const res = await fetch(`/api/jira-logs?${params.toString()}`, {
         cache: 'no-store',
       })
@@ -227,6 +237,34 @@ export default function WorklogDashboard() {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2 w-full sm:w-auto">
+              <Label className="text-sm">
+                Account ID
+                <Tooltip>
+                  <TooltipTrigger>?</TooltipTrigger>
+                  <TooltipContent>
+                    <div>
+                      <ol>
+                        <li>1. กดมุมขวาบนของ web jira</li>
+                        <li>2. กดคำว่า &quot;profile&quot; ในหน้าตัวชี้วัด</li>
+                        <li>3. Copy URL จากคำว่า people ไปถึง ?</li>
+                        ตัวอย่าง
+                        https://home.atlassian.com/o/.../people/712020%3A86b133e1-7356-44e9-aee9-7b99ff8d1cf1?cloudId=....
+                        <p>
+                          account id คือ
+                          712020%3A86b133e1-7356-44e9-aee9-7b99ff8d1cf1
+                        </p>
+                      </ol>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </Label>
+              <Input
+                type="text"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
               />
             </div>
             <div className="flex items-end">
